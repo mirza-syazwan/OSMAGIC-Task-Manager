@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSMAGIC Task Manager</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script src="https://unpkg.com/leaflet-editable@0.7.0/dist/leaflet-editable.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <div>
+                    <h1>📋 OSMAGIC Task Manager</h1>
+                    <p>Convert GPS traces (GeoJSON/GPX/CSV) to JOSM format - One sequence at a time</p>
+                </div>
+                <button id="clearAllBtn" class="btn-clear-all" onclick="taskManager.clearAllData()" title="Clear all stored data">
+                    🗑️ Clear All Data
+                </button>
+            </div>
+        </header>
+
+        <div class="upload-section">
+            <div class="upload-panel">
+                <h3>📁 Upload GPS Trace File</h3>
+                <div class="file-upload">
+                    <input type="file" id="fileInput" accept=".geojson,.json,.gpx,.csv" multiple />
+                    <label for="fileInput" class="upload-button">
+                        Choose Files (GeoJSON/GPX/CSV) - Multiple files supported
+                    </label>
+                </div>
+                <div class="format-info" style="margin-top: 10px; font-size: 0.85em; color: #666;">
+                    <strong>Supported formats:</strong>
+                    <ul style="margin: 5px 0; padding-left: 20px;">
+                        <li>GeoJSON (.geojson, .json)</li>
+                        <li>GPX (.gpx)</li>
+                        <li>CSV (.csv) - with lat/lon columns</li>
+                    </ul>
+                </div>
+                <div class="file-info" id="fileInfo"></div>
+            </div>
+        </div>
+
+        <div class="task-section">
+            <div class="task-header">
+                <h3>📊 Current Task</h3>
+                <div class="task-controls">
+                    <button id="prevBtn" class="btn btn-secondary" disabled>
+                        ← Previous
+                    </button>
+                    <span id="taskCounter" class="task-counter"></span>
+                    <button id="nextBtn" class="btn btn-secondary" disabled>
+                        Next →
+                    </button>
+                </div>
+            </div>
+            
+            <div class="task-tabs">
+                <button class="tab-btn active" data-view="all" onclick="taskManager.switchView('all')">
+                    All Tasks
+                </button>
+                <button class="tab-btn" data-view="active" onclick="taskManager.switchView('active')">
+                    Active
+                </button>
+                <button class="tab-btn" data-view="done" onclick="taskManager.switchView('done')">
+                    Done
+                </button>
+                <button class="tab-btn" data-view="skipped" onclick="taskManager.switchView('skipped')">
+                    Skipped
+                </button>
+            </div>
+
+            <div class="task-display" id="taskDisplay">
+                <div class="empty-state">
+                    <p>Upload a GeoJSON file to begin</p>
+                </div>
+            </div>
+
+            <div class="task-footer">
+                <div class="summary-info" id="summaryInfo">
+                    <span>Total Sequences: 0</span>
+                    <span>Active: 0</span>
+                    <span>Skipped: 0</span>
+                    <span>Done: 0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div id="previewModal" class="modal" onclick="if(event.target.id === 'previewModal') taskManager.closePreview()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2>🗺️ OSMAGIC Preview - Sequence ID: <span id="previewSequenceId"></span></h2>
+                <button class="modal-close" onclick="taskManager.closePreview()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="previewMap" class="preview-map"></div>
+                <div class="preview-actions">
+                    <div class="preview-mode-controls">
+                        <button id="toggleEditModeBtn" class="btn btn-secondary" onclick="taskManager.toggleEditMode()">
+                            ✏️ Enable Edit Mode
+                        </button>
+                        <button id="simplifyBtn" class="btn btn-secondary" onclick="taskManager.simplifyGeometry()" style="display: none;">
+                            📉 Simplify Geometry
+                        </button>
+                        <input type="number" id="toleranceInput" placeholder="Tolerance (m)" value="5" min="0.1" step="0.1" style="display: none; width: 120px; padding: 8px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 0.9em;">
+                        <button id="saveEditsBtn" class="btn btn-primary" onclick="taskManager.savePreviewEdits()" style="display: none;">
+                            💾 Save Changes
+                        </button>
+                        <button id="revertEditsBtn" class="btn btn-secondary" onclick="taskManager.revertPreviewEdits()" style="display: none;">
+                            ↶ Revert Changes
+                        </button>
+                    </div>
+                    <div class="preview-export-controls">
+                        <button class="btn btn-primary" onclick="taskManager.exportFromPreview()">
+                            📥 Export to JOSM
+                        </button>
+                        <button class="btn btn-secondary" onclick="taskManager.closePreview()">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="storage.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+
