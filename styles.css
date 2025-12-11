@@ -465,6 +465,55 @@ body {
     overflow: hidden;
 }
 
+.highway-selector {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 15px;
+    background: #f8f9fa;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    font-size: 1em;
+}
+
+.highway-label {
+    font-weight: 600;
+    color: #000000;
+    padding: 6px 12px;
+    background: #ffffff;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+}
+
+.highway-equals {
+    font-weight: 600;
+    color: #666666;
+    font-size: 1.2em;
+}
+
+.highway-value {
+    padding: 6px 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #000000;
+    font-size: 0.95em;
+    cursor: pointer;
+    min-width: 150px;
+    transition: all 0.2s;
+}
+
+.highway-value:hover {
+    border-color: #0066ff;
+}
+
+.highway-value:focus {
+    outline: none;
+    border-color: #0066ff;
+    box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.1);
+}
+
 .preview-map {
     width: 100%;
     height: 600px;

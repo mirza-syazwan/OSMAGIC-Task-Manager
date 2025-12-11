@@ -1420,22 +1420,14 @@ class TaskManager {
             
             setTimeout(() => {
                 document.body.removeChild(iframe);
+                // Success message - no confirmation needed
                 alert('✅ Data sent to JOSM!\n\n' +
-                      'The file has been uploaded to the server and JOSM should import it automatically.\n\n' +
+                      'The file has been uploaded and JOSM should import it automatically.\n\n' +
                       'Please check your JOSM window - the data should appear now.');
             }, 2000);
             
-            // Check if it worked after a delay
-            setTimeout(() => {
-                const worked = confirm('Did the data appear in JOSM?\n\n' +
-                                     'If YES, you\'re all set! ✅\n' +
-                                     'If NO, the file will be downloaded as a backup.');
-                if (!worked) {
-                    // Fallback: download the file
-                    this.downloadFile(josmXml, `sequence_${sequenceId}.osm`, 'application/xml');
-                }
-            }, 4000);
-            
+            // No need for confirmation - if automatic transfer fails, user can manually export
+            // The file is available on the server if needed
             return;
             
         } catch (error) {
@@ -1518,22 +1510,9 @@ class TaskManager {
                 }
             });
 
-            // Add tags from properties
-            if (feature.properties) {
-                Object.entries(feature.properties).forEach(([key, value]) => {
-                    if (key !== 'sequence_id' && key !== 'sequenceId' && key !== 'sequence' && key !== 'seq') {
-                        xml += `    <tag k="${this.escapeXml(key)}" v="${this.escapeXml(String(value))}" />\n`;
-                    }
-                });
-            }
-
-            // Default highway tag if not present
-            if (!feature.properties?.highway) {
-                xml += `    <tag k="highway" v="unclassified" />\n`;
-            }
-
-            xml += `    <tag k="source" v="OSMAGIC Task Manager" />\n`;
-            xml += `    <tag k="sequence_id" v="${sequence.id}" />\n`;
+            // Only add highway tag (user requested only highway tag)
+            const highwayValue = feature.properties?.highway || 'unclassified';
+            xml += `    <tag k="highway" v="${this.escapeXml(String(highwayValue))}" />\n`;
             xml += `  </way>\n`;
         });
 
@@ -1602,6 +1581,14 @@ class TaskManager {
         
         document.getElementById('previewSequenceId').textContent = sequenceId;
         
+        // Set initial highway value in selector
+        const highwaySelect = document.getElementById('highwaySelect');
+        if (highwaySelect) {
+            // Get highway value from first feature, or default to 'unclassified'
+            const highwayValue = sequence.features[0]?.properties?.highway || 'unclassified';
+            highwaySelect.value = highwayValue;
+        }
+        
         // Reset edit mode UI
         document.getElementById('toggleEditModeBtn').style.display = 'inline-block';
         document.getElementById('toggleEditModeBtn').textContent = '✏️ Enable Edit Mode';
@@ -1653,12 +1640,7 @@ class TaskManager {
                     };
                 },
                 onEachFeature: (feature, layer) => {
-                    if (feature.properties) {
-                        const props = Object.entries(feature.properties)
-                            .map(([key, value]) => `${key}: ${value}`)
-                            .join('<br>');
-                        layer.bindPopup(`<strong>Properties:</strong><br>${props}`);
-                    }
+                    // No popup - user doesn't want property popups
                 }
             }).addTo(this.map);
 
@@ -1695,12 +1677,15 @@ class TaskManager {
         this.previewEditMode = !this.previewEditMode;
         
         if (this.previewEditMode) {
-            // Keep map dragging enabled but we'll disable it during actual drag operations
-            // This allows panning when not dragging nodes/ways
+            // Disable map dragging when edit mode is enabled to prevent conflicts with node/way dragging
+            // Users can still pan by clicking and dragging on empty map areas (we'll handle this separately if needed)
+            this.map.dragging.disable();
+            
             // Check if we have layers to edit
             if (!this.editableLayers || this.editableLayers.length === 0) {
                 alert('No geometry found to edit. Make sure the sequence has features.');
                 this.previewEditMode = false;
+                this.map.dragging.enable(); // Re-enable if we're not entering edit mode
                 return;
             }
             
@@ -1741,10 +1726,10 @@ class TaskManager {
                             layer._isDragging = true;
                             layer._wayDragStartLatLng = e.latlng; // Store initial click position
                             layer._originalLatLngs = this.flattenLatLngs(layer.getLatLngs());
-                            // Disable map dragging
+                            // Map dragging is already disabled in edit mode, but ensure it stays disabled
                             this.map.dragging.disable();
-                            e.originalEvent.preventDefault();
-                            e.originalEvent.stopPropagation();
+                            L.DomEvent.stopPropagation(e);
+                            L.DomEvent.preventDefault(e);
                         }
                     });
                     
@@ -1794,8 +1779,7 @@ class TaskManager {
                             }
                             
                             layer._originalLatLngs = null;
-                            // Re-enable map dragging
-                            this.map.dragging.enable();
+                            // Map dragging stays disabled in edit mode (we'll re-enable when exiting edit mode)
                         }
                     };
                     
@@ -1905,9 +1889,6 @@ class TaskManager {
                     if (layer._vertexMarkers) {
                         layer._vertexMarkers.forEach(marker => {
                             this.map.removeLayer(marker);
-                            if (marker._deleteBtn) {
-                                this.map.removeLayer(marker._deleteBtn);
-                            }
                         });
                         layer._vertexMarkers = [];
                     }
@@ -1957,9 +1938,6 @@ class TaskManager {
         if (layer._vertexMarkers) {
             layer._vertexMarkers.forEach(marker => {
                 this.map.removeLayer(marker);
-                if (marker._deleteBtn) {
-                    this.map.removeLayer(marker._deleteBtn);
-                }
             });
         }
         layer._vertexMarkers = [];
@@ -1986,66 +1964,108 @@ class TaskManager {
                     html: '<div class="vertex-handle"></div>',
                     iconSize: [12, 12]
                 }),
-                zIndexOffset: 1000, // Ensure markers are above the map
+                zIndexOffset: 1100, // Higher than delete button (1000) to ensure marker is on top
                 interactive: true
             }).addTo(this.map);
             
-            // Delete button for node (appears on hover)
-            const deleteBtn = L.marker([lat, lng], {
-                icon: L.divIcon({
-                    className: 'delete-node-btn',
-                    html: '<div class="delete-node-icon" title="Delete node">×</div>',
-                    iconSize: [20, 20]
-                }),
-                zIndexOffset: 1000,
-                interactive: true
-            }).addTo(this.map);
+            // No delete button needed - clicking the node itself will delete it
+            // Ensure marker dragging is enabled
+            marker.dragging.enable();
+            marker.setZIndexOffset(1100);
             
-            deleteBtn.on('click', (e) => {
-                e.originalEvent.stopPropagation();
-                if (latlngs.length > 2) { // Keep at least 2 points
-                    latlngs.splice(index, 1);
-                    layer.setLatLngs(layer instanceof L.Polygon ? [latlngs] : latlngs);
-                    this.updateVertexMarkers(layer, latlngs);
-                } else {
-                    alert('Cannot delete node. A line must have at least 2 points.');
+            // Track mouse state to distinguish between click (delete) and drag (move)
+            marker._mouseDownPos = null;
+            marker._hasMoved = false;
+            marker._clickTimeout = null;
+            marker._isDragging = false;
+            
+            // Handle mousedown - track initial position
+            marker.on('mousedown', (e) => {
+                // Disable map dragging when clicking on marker
+                this.map.dragging.disable();
+                // Store initial mouse position
+                marker._mouseDownPos = {
+                    x: e.originalEvent.clientX,
+                    y: e.originalEvent.clientY,
+                    latlng: e.latlng
+                };
+                marker._hasMoved = false;
+                marker._isDragging = false;
+                
+                // Set a timeout to detect click (if no drag happens)
+                marker._clickTimeout = setTimeout(() => {
+                    // If mouse hasn't moved significantly and drag hasn't started, treat as click
+                    if (!marker._hasMoved && !marker._isDragging) {
+                        // This will be handled by mouseup if it's still a click
+                    }
+                }, 50);
+            });
+            
+            // Handle mousemove on marker to detect if it's a drag
+            marker.on('mousemove', (e) => {
+                if (marker._mouseDownPos) {
+                    const dx = Math.abs(e.originalEvent.clientX - marker._mouseDownPos.x);
+                    const dy = Math.abs(e.originalEvent.clientY - marker._mouseDownPos.y);
+                    // If mouse moved more than 5 pixels, it's a drag
+                    if (dx > 5 || dy > 5) {
+                        marker._hasMoved = true;
+                        // Clear click timeout since this is a drag
+                        if (marker._clickTimeout) {
+                            clearTimeout(marker._clickTimeout);
+                            marker._clickTimeout = null;
+                        }
+                    }
                 }
             });
             
-            // Show delete button on hover
-            marker.on('mouseover', () => {
-                deleteBtn.setOpacity(1);
+            // Handle click (mouseup without significant movement) = DELETE
+            marker.on('click', (e) => {
+                // Only delete if it wasn't a drag
+                if (!marker._hasMoved && !marker._isDragging) {
+                    e.originalEvent.stopPropagation();
+                    e.originalEvent.preventDefault();
+                    
+                    if (latlngs.length > 2) { // Keep at least 2 points
+                        latlngs.splice(index, 1);
+                        layer.setLatLngs(layer instanceof L.Polygon ? [latlngs] : latlngs);
+                        this.updateVertexMarkers(layer, latlngs);
+                    } else {
+                        alert('Cannot delete node. A line must have at least 2 points.');
+                    }
+                }
+                
+                // Reset state
+                marker._mouseDownPos = null;
+                marker._hasMoved = false;
+                if (marker._clickTimeout) {
+                    clearTimeout(marker._clickTimeout);
+                    marker._clickTimeout = null;
+                }
             });
             
-            marker.on('mouseout', () => {
-                deleteBtn.setOpacity(0);
-            });
-            
-            deleteBtn.setOpacity(0); // Hidden by default
-            
-            marker._deleteBtn = deleteBtn;
-            
-            // Drag handler for vertex - disable map dragging when dragging nodes
-            marker.on('mousedown', (e) => {
-                // Disable map dragging when starting to drag a node
-                this.map.dragging.disable();
-                e.originalEvent.stopPropagation();
-                e.originalEvent.preventDefault();
-                // Mark that we're starting to drag a node
-                marker._isDragging = true;
-            });
-            
+            // Handle dragstart - this is a DRAG, not a click
             marker.on('dragstart', (e) => {
+                // Mark as dragging
+                marker._isDragging = true;
+                marker._hasMoved = true;
+                
+                // Clear click timeout since this is a drag
+                if (marker._clickTimeout) {
+                    clearTimeout(marker._clickTimeout);
+                    marker._clickTimeout = null;
+                }
+                
                 // Ensure map dragging is disabled
                 this.map.dragging.disable();
-                e.originalEvent.stopPropagation();
+                // Stop propagation to prevent map events
+                L.DomEvent.stopPropagation(e);
             });
             
             marker.on('drag', (e) => {
                 // Keep map dragging disabled during drag
-                if (this.map.dragging.enabled()) {
-                    this.map.dragging.disable();
-                }
+                this.map.dragging.disable();
+                // Stop propagation to prevent map from moving
+                L.DomEvent.stopPropagation(e);
                 
                 const newLatlng = e.target.getLatLng();
                 if (latlngs[index] instanceof L.LatLng) {
@@ -2055,31 +2075,26 @@ class TaskManager {
                     latlngs[index] = newLatlng;
                 }
                 layer.setLatLngs(layer instanceof L.Polygon ? [latlngs] : latlngs);
-                
-                // Update delete button position
-                deleteBtn.setLatLng(newLatlng);
             });
             
             marker.on('dragend', (e) => {
                 // Mark that dragging has ended
                 marker._isDragging = false;
-                // Re-enable map dragging after drag ends
-                // Use a small delay to ensure drag has fully completed
-                setTimeout(() => {
-                    this.map.dragging.enable();
-                }, 50);
-                e.originalEvent.stopPropagation();
-                e.originalEvent.preventDefault();
+                marker._mouseDownPos = null;
+                marker._hasMoved = false;
+                // Stop propagation
+                L.DomEvent.stopPropagation(e);
+                // Map dragging stays disabled in edit mode (we'll re-enable when exiting edit mode)
             });
             
-            // Handle mouseup to ensure map dragging is re-enabled if drag didn't start
+            // Handle mouseup to clean up state
             marker.on('mouseup', (e) => {
-                if (!marker._isDragging) {
-                    // If we didn't actually drag, re-enable map dragging
-                    setTimeout(() => {
-                        this.map.dragging.enable();
-                    }, 10);
+                // Reset state
+                if (marker._clickTimeout) {
+                    clearTimeout(marker._clickTimeout);
+                    marker._clickTimeout = null;
                 }
+                marker._mouseDownPos = null;
             });
             
             layer._vertexMarkers.push(marker);
@@ -2403,7 +2418,7 @@ class TaskManager {
         // Update original for revert
         this.originalPreviewFeatures = JSON.parse(JSON.stringify(editedFeatures));
         
-        alert('✅ Changes saved!\n\nYour edits have been saved and will be included when you export to JOSM.');
+        // Changes saved silently - no popup needed
     }
 
     revertPreviewEdits() {
@@ -2446,6 +2461,28 @@ class TaskManager {
                 this.map.invalidateSize();
             }, 100);
         }
+    }
+
+    updateHighwayTag(value) {
+        if (!this.currentPreviewSequence) return;
+        
+        // Update highway property for all features in the sequence
+        this.currentPreviewSequence.features.forEach(feature => {
+            if (feature.properties) {
+                feature.properties.highway = value;
+            } else {
+                feature.properties = { highway: value };
+            }
+        });
+        
+        // Update the sequence in the main sequences array
+        const sequenceIndex = this.sequences.findIndex(s => s.id === this.currentPreviewSequence.id);
+        if (sequenceIndex >= 0) {
+            this.sequences[sequenceIndex].features = this.currentPreviewSequence.features;
+        }
+        
+        // Save to storage
+        this.saveToStorage();
     }
 
     async exportFromPreview() {

@@ -100,6 +100,25 @@
                 <button class="modal-close" onclick="taskManager.closePreview()">&times;</button>
             </div>
             <div class="modal-body">
+                <div class="highway-selector">
+                    <span class="highway-label">highway</span>
+                    <span class="highway-equals">=</span>
+                    <select id="highwaySelect" class="highway-value" onchange="taskManager.updateHighwayTag(this.value)">
+                        <option value="unclassified">unclassified</option>
+                        <option value="residential">residential</option>
+                        <option value="service">service</option>
+                        <option value="driveway">driveway</option>
+                        <option value="track">track</option>
+                        <option value="path">path</option>
+                        <option value="footway">footway</option>
+                        <option value="cycleway">cycleway</option>
+                        <option value="primary">primary</option>
+                        <option value="secondary">secondary</option>
+                        <option value="tertiary">tertiary</option>
+                        <option value="trunk">trunk</option>
+                        <option value="motorway">motorway</option>
+                    </select>
+                </div>
                 <div id="previewMap" class="preview-map"></div>
                 <div class="preview-actions">
                     <div class="preview-mode-controls">
