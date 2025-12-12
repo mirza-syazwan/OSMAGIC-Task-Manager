@@ -1354,6 +1354,32 @@ class TaskManager {
         }
     }
 
+    calculateBoundingBox(sequence) {
+        let minLat = Infinity, maxLat = -Infinity;
+        let minLon = Infinity, maxLon = -Infinity;
+        
+        sequence.features.forEach(feature => {
+            if (!feature.geometry) return;
+            const coords = this.extractCoordinates(feature.geometry);
+            coords.forEach(coord => {
+                const [lon, lat] = coord;
+                minLat = Math.min(minLat, lat);
+                maxLat = Math.max(maxLat, lat);
+                minLon = Math.min(minLon, lon);
+                maxLon = Math.max(maxLon, lon);
+            });
+        });
+        
+        // Add a small buffer (about 100 meters) to the bounding box
+        const buffer = 0.001; // ~100 meters
+        return {
+            left: minLon - buffer,
+            right: maxLon + buffer,
+            top: maxLat + buffer,
+            bottom: minLat - buffer
+        };
+    }
+
     async sendToJOSM(josmXml, sequenceId) {
         // First, check if JOSM is running and accessible
         try {
@@ -1376,10 +1402,43 @@ class TaskManager {
             xmlLength: josmXml.length
         });
         
-        // Method 1: Use server-side export + JOSM import endpoint (most reliable)
+        // Get the sequence to calculate bounding box
+        const sequence = this.sequences.find(s => String(s.id) === String(sequenceId));
+        if (!sequence) {
+            console.error('Sequence not found for bounding box calculation');
+            // Continue without OSM data download
+        } else {
+            // Step 1: Download OSM data for the area
+            try {
+                const bbox = this.calculateBoundingBox(sequence);
+                console.log('Step 1: Downloading OSM data for bounding box:', bbox);
+                
+                // Use JOSM's load_and_zoom endpoint to download OSM data
+                const loadUrl = `http://localhost:8111/load_and_zoom?left=${bbox.left}&right=${bbox.right}&top=${bbox.top}&bottom=${bbox.bottom}`;
+                console.log('JOSM load_and_zoom URL:', loadUrl);
+                
+                // Use iframe to trigger JOSM to download OSM data
+                const loadIframe = document.createElement('iframe');
+                loadIframe.style.display = 'none';
+                loadIframe.style.width = '0';
+                loadIframe.style.height = '0';
+                loadIframe.src = loadUrl;
+                document.body.appendChild(loadIframe);
+                
+                // Wait a bit for OSM data to load before loading GPS trace
+                setTimeout(() => {
+                    document.body.removeChild(loadIframe);
+                    console.log('OSM data download triggered');
+                }, 1000);
+            } catch (error) {
+                console.warn('Failed to download OSM data, continuing with GPS trace only:', error);
+            }
+        }
+        
+        // Method 2: Use server-side export + JOSM import endpoint (most reliable)
         // This avoids URL length limits and encoding issues
         try {
-            console.log('Step 1: Uploading OSM XML to server...');
+            console.log('Step 2: Uploading GPS trace OSM XML to server...');
             
             // POST the OSM XML to our server
             const response = await fetch('http://localhost:8000/export', {
@@ -1403,31 +1462,33 @@ class TaskManager {
                 throw new Error('Server did not return file URL');
             }
             
-            console.log('Step 2: File available at:', result.url);
-            console.log('Step 3: Sending to JOSM via import endpoint...');
+            console.log('Step 3: File available at:', result.url);
+            console.log('Step 4: Sending GPS trace to JOSM via import endpoint...');
             
-            // Use JOSM's import endpoint with the server URL
-            const josmImportUrl = `http://localhost:8111/import?url=${encodeURIComponent(result.url)}`;
-            console.log('JOSM import URL:', josmImportUrl);
-            
-            // Use iframe to trigger JOSM import
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.style.width = '0';
-            iframe.style.height = '0';
-            iframe.src = josmImportUrl;
-            document.body.appendChild(iframe);
-            
+            // Wait a bit longer to ensure OSM data is loaded first, then load GPS trace
             setTimeout(() => {
-                document.body.removeChild(iframe);
-                // Success message - no confirmation needed
-                alert('✅ Data sent to JOSM!\n\n' +
-                      'The file has been uploaded and JOSM should import it automatically.\n\n' +
-                      'Please check your JOSM window - the data should appear now.');
-            }, 2000);
+                // Use JOSM's import endpoint with the server URL
+                const josmImportUrl = `http://localhost:8111/import?url=${encodeURIComponent(result.url)}`;
+                console.log('JOSM import URL:', josmImportUrl);
+                
+                // Use iframe to trigger JOSM import (GPS trace will be on top of OSM data)
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.style.width = '0';
+                iframe.style.height = '0';
+                iframe.src = josmImportUrl;
+                document.body.appendChild(iframe);
+                
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                    // Success message
+                    alert('✅ Data sent to JOSM!\n\n' +
+                          'OSM map data has been downloaded for the area.\n' +
+                          'Your GPS trace has been loaded on top as a new layer.\n\n' +
+                          'Please check your JOSM window - you can now merge/edit based on OSM data.');
+                }, 2000);
+            }, sequence ? 2000 : 500); // Wait longer if OSM data was downloaded
             
-            // No need for confirmation - if automatic transfer fails, user can manually export
-            // The file is available on the server if needed
             return;
             
         } catch (error) {
